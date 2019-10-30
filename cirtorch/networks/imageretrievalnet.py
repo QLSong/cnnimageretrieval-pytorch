@@ -11,6 +11,7 @@ from cirtorch.layers.pooling import MAC, SPoC, GeM, GeMmp, RMAC, Rpool
 from cirtorch.layers.normalization import L2N, PowerLaw
 from cirtorch.datasets.genericdataset import ImagesFromList
 from cirtorch.utils.general import get_data_root
+from cirtorch.networks.model import RetrievalNet
 
 # for some models, we have imported features (convolutions) from caffe because the image retrieval performance is higher for them
 FEATURES = {
@@ -88,7 +89,11 @@ class ImageRetrievalNet(nn.Module):
     
     def __init__(self, features, lwhiten, pool, whiten, meta):
         super(ImageRetrievalNet, self).__init__()
-        self.features = nn.Sequential(*features)
+
+        if meta['flag']:
+            self.features = features
+        else:
+            self.features = nn.Sequential(*features)
         self.lwhiten = lwhiten
         self.pool = pool
         self.whiten = whiten
@@ -150,6 +155,7 @@ def init_network(params):
     mean = params.get('mean', [0.485, 0.456, 0.406])
     std = params.get('std', [0.229, 0.224, 0.225])
     pretrained = params.get('pretrained', True)
+    flag = params.get('flag', False)
 
     # get output dimensionality size
     dim = OUTPUT_DIM[architecture]
@@ -169,7 +175,9 @@ def init_network(params):
     # initialize features
     # take only convolutions for features,
     # always ends with ReLU to make last activations non-negative
-    if architecture.startswith('alexnet'):
+    if flag:
+        features = RetrievalNet()
+    elif architecture.startswith('alexnet'):
         features = list(net_in.features.children())[:-1]
     elif architecture.startswith('vgg'):
         features = list(net_in.features.children())[:-1]
@@ -260,13 +268,15 @@ def init_network(params):
         'mean' : mean, 
         'std' : std,
         'outputdim' : dim,
+        'flag' : flag,
     }
 
     # create a generic image retrieval network
     net = ImageRetrievalNet(features, lwhiten, pool, whiten, meta)
 
     # initialize features with custom pretrained network if needed
-    if pretrained and architecture in FEATURES:
+
+    if pretrained and architecture in FEATURES and not meta['flag']:
         print(">> {}: for '{}' custom pretrained features '{}' are used"
             .format(os.path.basename(__file__), architecture, os.path.basename(FEATURES[architecture])))
         model_dir = os.path.join(get_data_root(), 'networks')

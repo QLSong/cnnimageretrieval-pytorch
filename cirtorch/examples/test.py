@@ -57,6 +57,7 @@ parser.add_argument('--whitening', '-w', metavar='WHITENING', default=None, choi
                     help="dataset used to learn whitening for testing: " + 
                         " | ".join(whitening_names) + 
                         " (default: None)")
+parser.add_argument('--flag', dest='flag', action='store_true', help='my model')
 
 # GPU ID
 parser.add_argument('--gpu-id', '-g', default='0', metavar='N',
@@ -72,8 +73,8 @@ def main():
 
     # check if test dataset are downloaded
     # and download if they are not
-    download_train(get_data_root())
-    download_test(get_data_root())
+    # download_train(get_data_root())
+    # download_test(get_data_root())
 
     # setting up the visible GPU
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
@@ -101,6 +102,7 @@ def main():
         net_params['mean'] = state['meta']['mean']
         net_params['std'] = state['meta']['std']
         net_params['pretrained'] = False
+        net_params['flag'] = args.flag
 
         # load network
         net = init_network(net_params)

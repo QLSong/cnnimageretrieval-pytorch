@@ -17,6 +17,7 @@ import torchvision.transforms as transforms
 import torchvision.models as models
 
 from cirtorch.networks.imageretrievalnet import init_network, extract_vectors
+from cirtorch.networks.model import RetrievalNet
 from cirtorch.layers.loss import ContrastiveLoss, TripletLoss
 from cirtorch.datasets.datahelpers import collate_tuples, cid2filename
 from cirtorch.datasets.traindataset import TuplesDataset
@@ -74,6 +75,7 @@ parser.add_argument('--regional', '-r', dest='regional', action='store_true',
                     help='train model with regional pooling using fixed grid')
 parser.add_argument('--whitening', '-w', dest='whitening', action='store_true',
                     help='train model with learnable whitening (linear layer) after the pooling')
+parser.add_argument('--flag', dest='flag', action='store_true', help='my model')
 parser.add_argument('--not-pretrained', dest='pretrained', action='store_false',
                     help='initialize model with random weights (default: pretrained on imagenet)')
 parser.add_argument('--loss', '-l', metavar='LOSS', default='contrastive',
@@ -123,9 +125,10 @@ parser.add_argument('--resume', default='', type=str, metavar='FILENAME',
                     help='name of the latest checkpoint (default: None)')
 
 min_loss = float('inf')
+max_map = 0
 
 def main():
-    global args, min_loss
+    global args, min_loss, max_map
     args = parser.parse_args()
 
     # manually check if there are unknown test datasets
@@ -135,8 +138,8 @@ def main():
 
     # check if test dataset are downloaded
     # and download if they are not
-    download_train(get_data_root())
-    download_test(get_data_root())
+    #download_train(get_data_root())
+    #download_test(get_data_root())
 
     # create export dir if it doesnt exist
     directory = "{}".format(args.training_dataset)
@@ -156,6 +159,8 @@ def main():
     directory += "_bsize{}_uevery{}_imsize{}".format(args.batch_size, args.update_every, args.image_size)
 
     args.directory = os.path.join(args.directory, directory)
+    if args.flag:
+        args.directory = './data/myresult'
     print(">> Creating directory if it does not exist:\n>> '{}'".format(args.directory))
     if not os.path.exists(args.directory):
         os.makedirs(args.directory)
@@ -183,6 +188,7 @@ def main():
     # model_params['mean'] = ...  # will use default
     # model_params['std'] = ...  # will use default
     model_params['pretrained'] = args.pretrained
+    model_params['flag'] = args.flag
     model = init_network(model_params)
 
     # move network to gpu
@@ -319,18 +325,20 @@ def main():
         # evaluate on test datasets every test_freq epochs
         if (epoch + 1) % args.test_freq == 0:
             with torch.no_grad():
-                test(args.test_datasets, model)
+               map_oxford, map_paris = test(args.test_datasets, model)
 
         # remember best loss and save checkpoint
-        is_best = loss < min_loss
+        #is_best = loss < min_loss
         min_loss = min(loss, min_loss)
+        is_best = (map_oxford + map_paris) > max_map
+        max_map = max(map_oxford + map_paris, max_map)
 
         save_checkpoint({
             'epoch': epoch + 1,
             'meta': model.meta,
             'state_dict': model.state_dict(),
             'min_loss': min_loss,
-            'optimizer' : optimizer.state_dict(),
+            #'optimizer' : optimizer.state_dict(),
         }, is_best, args.directory)
 
 def train(train_loader, model, criterion, optimizer, epoch):
@@ -491,7 +499,7 @@ def test(datasets, net):
 
     # evaluate on test datasets
     datasets = args.test_datasets.split(',')
-    for dataset in datasets: 
+    for i, dataset in enumerate(datasets):
         start = time.time()
 
         print('>> {}: Extracting...'.format(dataset))
@@ -517,8 +525,17 @@ def test(datasets, net):
         # search, rank, and print
         scores = np.dot(vecs.T, qvecs)
         ranks = np.argsort(-scores, axis=0)
-        compute_map_and_print(dataset, ranks, cfg['gnd'])
-    
+
+        map_oxford = 0
+        map_paris = 0
+        if dataset.startswith('oxford5k'):
+            map_oxford = compute_map_and_print(dataset, ranks, cfg['gnd'])
+        elif dataset.startswith('paris6k'):
+            map_paris = compute_map_and_print(dataset, ranks, cfg['gnd'])
+        else:
+            compute_map_and_print(dataset, ranks, cfg['gnd'])
+
+
         if Lw is not None:
             # whiten the vectors
             vecs_lw  = whitenapply(vecs, Lw['m'], Lw['P'])
@@ -527,13 +544,19 @@ def test(datasets, net):
             # search, rank, and print
             scores = np.dot(vecs_lw.T, qvecs_lw)
             ranks = np.argsort(-scores, axis=0)
-            compute_map_and_print(dataset + ' + whiten', ranks, cfg['gnd'])
+            if dataset.startswith('oxford5k'):
+                map_oxford = compute_map_and_print(dataset + ' + whiten', ranks, cfg['gnd'])
+            elif dataset.startswith('paris6k'):
+                map_paris = compute_map_and_print(dataset + ' + whiten', ranks, cfg['gnd'])
+            else:
+                compute_map_and_print(dataset + ' + whiten', ranks, cfg['gnd'])
+
         
         print('>> {}: elapsed time: {}'.format(dataset, htime(time.time()-start)))
-
+    return map_oxford, map_paris
 
 def save_checkpoint(state, is_best, directory):
-    filename = os.path.join(directory, 'model_epoch%d.pth.tar' % state['epoch'])
+    filename = os.path.join(directory, 'model_final_epoch.pth.tar')
     torch.save(state, filename)
     if is_best:
         filename_best = os.path.join(directory, 'model_best.pth.tar')

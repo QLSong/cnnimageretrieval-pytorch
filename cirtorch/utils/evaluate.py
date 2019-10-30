@@ -117,6 +117,7 @@ def compute_map_and_print(dataset, ranks, gnd, kappas=[1, 5, 10]):
     if dataset.startswith('oxford5k') or dataset.startswith('paris6k'):
         map, aps, _, _ = compute_map(ranks, gnd)
         print('>> {}: mAP {:.2f}'.format(dataset, np.around(map*100, decimals=2)))
+        return map*100
 
     # new evaluation protocol
     elif dataset.startswith('roxford5k') or dataset.startswith('rparis6k'):
@@ -147,3 +148,4 @@ def compute_map_and_print(dataset, ranks, gnd, kappas=[1, 5, 10]):
 
         print('>> {}: mAP E: {}, M: {}, H: {}'.format(dataset, np.around(mapE*100, decimals=2), np.around(mapM*100, decimals=2), np.around(mapH*100, decimals=2)))
         print('>> {}: mP@k{} E: {}, M: {}, H: {}'.format(dataset, kappas, np.around(mprE*100, decimals=2), np.around(mprM*100, decimals=2), np.around(mprH*100, decimals=2)))
+        return 0
